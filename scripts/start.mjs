@@ -114,12 +114,20 @@ if (port) {
 vendorWasm()
 
 console.log('\nJ.A.R.V.I.S. starting — the brain and the face.\n')
-run('bridge', 'node', ['bridge/server.mjs'], '36', bridgeEnv)
-// npm is a shell script on most systems; call the vite binary directly so we do
-// not need shell:true (which would break the argument handling above).
-run('face', process.execPath, ['node_modules/vite/bin/vite.js'], '35', {})
+const facePort = port || '5173'
+run('bridge', process.execPath, ['bridge/server.mjs'], '36', bridgeEnv)
+// Call the vite binary directly so we do not need shell:true. --host is the
+// literal loopback address; the config rejects anything wider.
+run(
+  'face',
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--strictPort'],
+  '35',
+  {},
+)
 
 console.log(
-  '\nWhen it says the dev server is ready, open the URL it prints in Chrome,\n' +
-    'click INITIALISE, and say "Hey Jarvis". Ctrl-C stops everything.\n',
+  `\nWhen the dev server is ready, open http://127.0.0.1:${facePort} in Chrome or Edge\n` +
+    'on this PC (a real window, not an embedded preview). Do not pass --writes:\n' +
+    'the bridge stays read-only. Ctrl-C stops everything.\n',
 )

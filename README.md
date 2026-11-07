@@ -72,10 +72,49 @@ npm run dev
 Then open the app in a **real Chrome or Edge window**:
 
 ```bash
-open http://localhost:5173
+open http://127.0.0.1:5173
 ```
 
 Click **INITIALISE**, allow the microphone when asked, and say **"Hey Jarvis"**.
+
+### Windows, on this PC only
+
+The reviewed setup listens on **127.0.0.1** (and the bridge also on **::1**). It does not listen on the LAN. Do not add `--host`, a tunnel, a firewall rule, or `JARVIS_ALLOW_WRITES`.
+
+From `C:\Users\Adam\Jarvis`, in PowerShell or Command Prompt. Node.js 20 or newer is required; npm 11.20 is what reads the `allowScripts` policy below.
+
+```bat
+git fetch origin
+git checkout <commit-sha-from-the-pull-request>
+rmdir /s /q node_modules
+npm ci
+npm run check:loopback
+npm start
+```
+
+Use the full commit SHA from the pull request, not `main`. `git rev-parse HEAD` on this machine should print that same SHA before `npm ci`.
+
+`npm ci` uses the lockfile. With this commit it should finish without an `allowScripts` prompt and report **3 high** severity issues, all in `sharp` / `@huggingface/transformers` / `kokoro-js` (no patched release in this tree). `package.json` `allowScripts` already records the install-script review, so there is nothing to approve by hand:
+
+| Package | Script | Decision |
+|---|---|---|
+| `esbuild` @ 0.28.1 | postinstall checks the platform binary, and downloads it from the npm registry only if the optional `@esbuild/win32-*` package is missing | allowed — Vite needs this binary |
+| `protobufjs` @ 7.6.5 | postinstall prints a version-scheme warning and does not download or compile anything | allowed |
+| `onnxruntime-node` @ 1.21.0 | postinstall downloads or selects a native ONNX runtime | **denied** — the default voice path uses the browser, not this module |
+| `sharp` @ 0.34.5 | install script checks or builds libvips | **denied** — not used by the default voice path. The prebuilt libvips package can still be unpacked as an optional dependency; nothing in the default start imports it. No patched sharp release is available in this tree |
+| `fsevents` | macOS file-watcher install script | **denied** — not installed on Windows |
+
+Then open **http://127.0.0.1:5173** in a normal Chrome or Edge window on this computer. The bridge log must include `127.0.0.1` and `writes disabled`. It must not mention `0.0.0.0`.
+
+Confirm the sockets before talking to it:
+
+```bat
+netstat -ano | findstr "5173 8787"
+```
+
+The local address column should be `127.0.0.1` and/or `[::1]`, not `0.0.0.0`. `npm run check:loopback` does the same kind of check: it uses an empty home directory, strips environment variables whose names look like keys, and it does not send a conversation.
+
+Leave Claude's own login where it is. Do not put an API key in `.env.local`. A voice turn bills the existing Claude account; the health check does not. Kokoro and ElevenLabs stay off unless you opt in later. Do not run `npm run bridge:writes` or `npm start -- --writes`.
 
 > It has to be a real browser window. Embedded preview panes block the
 > microphone, so JARVIS will look perfectly alive and simply never respond.
@@ -297,8 +336,9 @@ terminal, and that nothing else is holding port `8787`.
 
 All of this lives in `bridge/server.mjs`:
 
+- The bridge binds only `127.0.0.1` and `::1`. The Vite dev and preview servers bind `127.0.0.1`, and the config refuses a non-loopback host. There is no environment variable that widens either bind.
 - The WebSocket accepts only local dev origins (add more with
-  `JARVIS_ALLOWED_ORIGINS`).
+  `JARVIS_ALLOWED_ORIGINS`). A browser origin is not a substitute for the bind: an allowed origin can still only connect if it can reach the socket.
 - `/file`, `/img` and `/media` validate the scheme, confine to allowed roots,
   resolve the real path, and refuse private and loopback addresses (SSRF guard).
 - The tool gate (`decideTool`) is default-deny for effectful MCP tools.

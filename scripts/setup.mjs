@@ -105,12 +105,11 @@ if (elSource) {
 
 // --- How to run ----------------------------------------------------------
 console.log('');
-console.log('To run JARVIS, open two terminals:');
-console.log('  1)  npm run bridge      # the brain (Claude Code, headless)');
-console.log('  2)  npm run dev         # the face (open http://localhost:5173 in Chrome)');
-console.log('');
-console.log('Then click INITIALISE and say "Hey Jarvis".');
-console.log('To let JARVIS take real actions (phone, browser, sending), run `npm run bridge:writes` instead of `npm run bridge`.');
+console.log('To run JARVIS on this machine only:');
+console.log('  npm start');
+console.log('Then open http://127.0.0.1:5173 in Chrome or Edge on this PC.');
+console.log('Both processes bind to loopback. Do not pass --writes, --host, or a tunnel.');
+console.log('Effectful tools stay off unless you later choose `npm run bridge:writes` yourself.');
 console.log('');
 
 process.exit(0);

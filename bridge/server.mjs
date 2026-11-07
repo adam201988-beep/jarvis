@@ -25,10 +25,17 @@ import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { listenOnLoopback } from './loopback.mjs'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error(
+    `[jarvis] JARVIS_BRIDGE_PORT must be an integer from 1 to 65535 (got ${process.env.JARVIS_BRIDGE_PORT})`,
+  )
+  process.exit(1)
+}
 
 /**
  * A crash here takes the whole assistant down mid-sentence, and most of what
@@ -965,42 +972,58 @@ const handleRequest = async (req, res) => {
   res.end()
 }
 
-const server = http.createServer((req, res) => {
-  // The handler is async, so anything it throws would otherwise become an
-  // unhandled rejection and leave the browser waiting on a socket that is
-  // never going to answer.
-  handleRequest(req, res).catch((err) => {
-    console.error('[jarvis] request failed:', err)
-    if (!res.headersSent) res.writeHead(500)
-    res.end()
-  })
-})
+// Assigned before any handshake is handled. A connection that arrives in the
+// gap is closed rather than served without the session handler.
+let handleClient = (socket) => {
+  socket.close()
+}
 
-const wss = new WebSocketServer({
-  server,
+const verifyClient = ({ origin, req }, done) => {
   // The handshake is the only place a page can be turned away, so it happens
   // here rather than after the socket is open. Rejections are logged loudly:
   // the likeliest cause is a dev server on an unexpected port, and a silent
   // 403 would look like the bridge simply isn't running.
-  verifyClient: ({ origin, req }, done) => {
-    const path = (req.url ?? '/').split('?')[0]
-    if (path !== '/' && path !== '/ws') {
-      console.warn(`[jarvis] rejected websocket on path ${path}`)
-      return done(false, 403, 'Forbidden')
-    }
-    if (!originAllowed(origin)) {
-      console.warn(
-        `[jarvis] rejected websocket from origin ${origin ?? '(none)'}` +
-          ' — set JARVIS_ALLOWED_ORIGINS to permit it',
-      )
-      return done(false, 403, 'Forbidden')
-    }
-    done(true)
-  },
-})
-server.listen(PORT)
+  const path = (req.url ?? '/').split('?')[0]
+  if (path !== '/' && path !== '/ws') {
+    console.warn(`[jarvis] rejected websocket on path ${path}`)
+    return done(false, 403, 'Forbidden')
+  }
+  if (!originAllowed(origin)) {
+    console.warn(
+      `[jarvis] rejected websocket from origin ${origin ?? '(none)'}` +
+        ' — set JARVIS_ALLOWED_ORIGINS to permit it',
+    )
+    return done(false, 403, 'Forbidden')
+  }
+  done(true)
+}
 
-console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
+let bridgeServers
+try {
+  bridgeServers = await listenOnLoopback(PORT, () => {
+    const server = http.createServer((req, res) => {
+      // The handler is async, so anything it throws would otherwise become an
+      // unhandled rejection and leave the browser waiting on a socket that is
+      // never going to answer.
+      handleRequest(req, res).catch((err) => {
+        console.error('[jarvis] request failed:', err)
+        if (!res.headersSent) res.writeHead(500)
+        res.end()
+      })
+    })
+    const wss = new WebSocketServer({ server, verifyClient })
+    wss.on('connection', (socket) => handleClient(socket))
+    return { server, wss }
+  })
+} catch (err) {
+  console.error(`[jarvis] failed to bind loopback port ${PORT}: ${err.message}`)
+  process.exit(1)
+}
+
+for (const { host } of bridgeServers) {
+  const shown = host.includes(':') ? `[${host}]` : host
+  console.log(`[jarvis] bridge listening on ws://${shown}:${PORT} (loopback only)`)
+}
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
@@ -1039,7 +1062,7 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
-wss.on('connection', (socket) => {
+handleClient = (socket) => {
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1460,4 +1483,4 @@ wss.on('connection', (socket) => {
     deliver?.(null)
     session.close?.()
   })
-})
+}
