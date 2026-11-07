@@ -118,6 +118,18 @@ Leave Claude's own login where it is. Do not put an API key in `.env.local`. A v
 
 The **Voices** button at the bottom lists the browser's free voices. **Preview this voice**, or **V** while you are not typing, speaks one line in the selected voice and remembers it in this browser. Windows does not ship a British voice. The panel says so, and David or Mark is the closest male voice it can offer. The accent will be American.
 
+### Inbox task (off until you set it up)
+
+**Inbox task** can send one research, analysis, or draft task to the Grok Bot routine webhook. It does not manage other bots or import old chats. The sender stays off until Windows has a DPAPI key file. Confirm Send is the only send. HTTP 200 means the run was accepted; the result shows up in this Grok Bot chat, not in Jarvis.
+
+On this PC, in PowerShell, from the Jarvis folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-inbox-key.ps1
+```
+
+The script asks for the POST to URL and then hides the sender key. Do not put the key in the command, in chat, or in `.env.local`. Copy both from the routine's Webhook section (POST to, and key). The URL has to be `https://api2.cursor.sh/automations/webhook/<id>` as shown there. Restart `npm start` after the script says it saved.
+
 > It has to be a real browser window. Embedded preview panes block the
 > microphone, so JARVIS will look perfectly alive and simply never respond.
 

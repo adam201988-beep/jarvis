@@ -26,6 +26,7 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { listenOnLoopback } from './loopback.mjs'
+import { createBridgeInbox } from './inboxFiles.mjs'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 
@@ -661,7 +662,7 @@ function corsFor(req) {
   const headers = { vary: 'origin' }
   if (origin) {
     headers['access-control-allow-origin'] = origin
-    headers['access-control-allow-headers'] = 'content-type'
+    headers['access-control-allow-headers'] = 'content-type, x-jarvis-csrf'
   }
   return headers
 }
@@ -669,7 +670,16 @@ function corsFor(req) {
 // One HTTP server for both the speech proxy and the WebSocket upgrade.
 const http = await import('node:http')
 
+const inbox = createBridgeInbox({
+  originAllowed,
+  log: (fields) => console.log('[jarvis] inbox', JSON.stringify(fields)),
+})
+
 const handleRequest = async (req, res) => {
+  const inboxPath = (req.url ?? '/').split('?')[0]
+  if (inboxPath === '/inbox/session' || inboxPath === '/inbox/send') {
+    return inbox.handle(req, res)
+  }
   const origin = req.headers.origin
   if (origin && !originAllowed(origin)) {
     console.warn(`[jarvis] refused http request from origin ${origin}`)
