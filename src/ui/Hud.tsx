@@ -6,6 +6,8 @@ import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
+import { VoicePicker } from './VoicePicker'
+import { InboxRelay } from './InboxRelay'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -154,7 +156,6 @@ export function Hud() {
   const connected = useStore((s) => s.connected)
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
-  const voice = useStore((s) => s.voice)
   const bootNote = useStore((s) => s.bootNote)
   const gestures = useStore((s) => s.gestures)
   const looking = useStore((s) => s.looking)
@@ -312,15 +313,12 @@ export function Hud() {
 
       <footer className="hud-bottom">
         <span className="hint">
-          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands
-          {voice && (
-            <>
-              {' · '}
-              <kbd>V</kbd> voice: {voice.replace(/\(.*?\)/g, '').trim()}
-            </>
-          )}
+          say <b>“hey jarvis”</b> · <kbd>Space</kbd> to talk · <kbd>G</kbd> hands ·{' '}
+          <kbd>V</kbd> cycles voices
         </span>
       </footer>
+      <VoicePicker />
+      <InboxRelay />
 
       {/* Last, so a flash or a tear reads as being on the glass rather than
           underneath the chrome. It is pointer-events: none and unmounts the

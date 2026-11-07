@@ -25,10 +25,18 @@ import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { listenOnLoopback } from './loopback.mjs'
+import { createBridgeInbox } from './inboxFiles.mjs'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error(
+    `[jarvis] JARVIS_BRIDGE_PORT must be an integer from 1 to 65535 (got ${process.env.JARVIS_BRIDGE_PORT})`,
+  )
+  process.exit(1)
+}
 
 /**
  * A crash here takes the whole assistant down mid-sentence, and most of what
@@ -383,8 +391,22 @@ The interface itself:
 - Put it back. A colour that outlives the moment that earned it is a fault.
 - Never mention that you have done any of it. They are looking at the screen.
 
-Their browser — ALWAYS the \`chrome_*\` tools, first, for anything to do with a
-browser or a web page:
+DriveConnect bots:
+- CRM NFC Search, Launch Budget, and the other DriveConnect bots are not on this
+  screen and they are not in Chrome. You do not have their status. Never invent
+  one, and never say a task has finished.
+- You cannot send the inbox. The user reviews a draft and clicks Confirm Send.
+  A reply, if they confirm, appears in the Grok Bot chat. It does not come back
+  as your next spoken line.
+- An explicit request such as "ask Jarvis command for a CRM NFC Search status"
+  or "delegate to DriveConnect for a Launch Budget update" prepares that draft
+  before you are asked. If they used other words, tell them that phrase.
+- Do not open Chrome, do not ask for the Claude extension, and do not tell them
+  to sign into Grok for this. Those names are not a browser task.
+
+Their browser — the \`chrome_*\` tools, for an ordinary web page. DriveConnect,
+Jarvis command, CRM NFC Search, Launch Budget, and the Grok Bot inbox are not
+browser tasks.
 - The \`chrome_*\` tools drive the user's own Chrome. It is already signed in to
   everything they use, it carries their real cookies, and it does not read as
   automation to the sites it visits.
@@ -654,7 +676,7 @@ function corsFor(req) {
   const headers = { vary: 'origin' }
   if (origin) {
     headers['access-control-allow-origin'] = origin
-    headers['access-control-allow-headers'] = 'content-type'
+    headers['access-control-allow-headers'] = 'content-type, x-jarvis-csrf'
   }
   return headers
 }
@@ -662,7 +684,16 @@ function corsFor(req) {
 // One HTTP server for both the speech proxy and the WebSocket upgrade.
 const http = await import('node:http')
 
+const inbox = createBridgeInbox({
+  originAllowed,
+  log: (fields) => console.log('[jarvis] inbox', JSON.stringify(fields)),
+})
+
 const handleRequest = async (req, res) => {
+  const inboxPath = (req.url ?? '/').split('?')[0]
+  if (inboxPath === '/inbox/session' || inboxPath === '/inbox/send') {
+    return inbox.handle(req, res)
+  }
   const origin = req.headers.origin
   if (origin && !originAllowed(origin)) {
     console.warn(`[jarvis] refused http request from origin ${origin}`)
@@ -965,42 +996,58 @@ const handleRequest = async (req, res) => {
   res.end()
 }
 
-const server = http.createServer((req, res) => {
-  // The handler is async, so anything it throws would otherwise become an
-  // unhandled rejection and leave the browser waiting on a socket that is
-  // never going to answer.
-  handleRequest(req, res).catch((err) => {
-    console.error('[jarvis] request failed:', err)
-    if (!res.headersSent) res.writeHead(500)
-    res.end()
-  })
-})
+// Assigned before any handshake is handled. A connection that arrives in the
+// gap is closed rather than served without the session handler.
+let handleClient = (socket) => {
+  socket.close()
+}
 
-const wss = new WebSocketServer({
-  server,
+const verifyClient = ({ origin, req }, done) => {
   // The handshake is the only place a page can be turned away, so it happens
   // here rather than after the socket is open. Rejections are logged loudly:
   // the likeliest cause is a dev server on an unexpected port, and a silent
   // 403 would look like the bridge simply isn't running.
-  verifyClient: ({ origin, req }, done) => {
-    const path = (req.url ?? '/').split('?')[0]
-    if (path !== '/' && path !== '/ws') {
-      console.warn(`[jarvis] rejected websocket on path ${path}`)
-      return done(false, 403, 'Forbidden')
-    }
-    if (!originAllowed(origin)) {
-      console.warn(
-        `[jarvis] rejected websocket from origin ${origin ?? '(none)'}` +
-          ' — set JARVIS_ALLOWED_ORIGINS to permit it',
-      )
-      return done(false, 403, 'Forbidden')
-    }
-    done(true)
-  },
-})
-server.listen(PORT)
+  const path = (req.url ?? '/').split('?')[0]
+  if (path !== '/' && path !== '/ws') {
+    console.warn(`[jarvis] rejected websocket on path ${path}`)
+    return done(false, 403, 'Forbidden')
+  }
+  if (!originAllowed(origin)) {
+    console.warn(
+      `[jarvis] rejected websocket from origin ${origin ?? '(none)'}` +
+        ' — set JARVIS_ALLOWED_ORIGINS to permit it',
+    )
+    return done(false, 403, 'Forbidden')
+  }
+  done(true)
+}
 
-console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
+let bridgeServers
+try {
+  bridgeServers = await listenOnLoopback(PORT, () => {
+    const server = http.createServer((req, res) => {
+      // The handler is async, so anything it throws would otherwise become an
+      // unhandled rejection and leave the browser waiting on a socket that is
+      // never going to answer.
+      handleRequest(req, res).catch((err) => {
+        console.error('[jarvis] request failed:', err)
+        if (!res.headersSent) res.writeHead(500)
+        res.end()
+      })
+    })
+    const wss = new WebSocketServer({ server, verifyClient })
+    wss.on('connection', (socket) => handleClient(socket))
+    return { server, wss }
+  })
+} catch (err) {
+  console.error(`[jarvis] failed to bind loopback port ${PORT}: ${err.message}`)
+  process.exit(1)
+}
+
+for (const { host } of bridgeServers) {
+  const shown = host.includes(':') ? `[${host}]` : host
+  console.log(`[jarvis] bridge listening on ws://${shown}:${PORT} (loopback only)`)
+}
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
@@ -1039,7 +1086,7 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
-wss.on('connection', (socket) => {
+handleClient = (socket) => {
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1460,4 +1507,4 @@ wss.on('connection', (socket) => {
     deliver?.(null)
     session.close?.()
   })
-})
+}

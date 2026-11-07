@@ -6,7 +6,9 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
-import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
+import { createSpeaker, cycleVoice, currentVoiceName, previewBrowserVoice } from './lib/tts'
+import { isTypingTarget } from './lib/browserVoices'
+import { considerFinal, publishInboxDraft } from './lib/inboxDraft'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
@@ -236,6 +238,43 @@ export default function App() {
     }
   }
 
+  /**
+   * A finished sentence that asks for a DriveConnect bot. Opens a draft and
+   * does not call the model, and does not send. Returns true when the sentence
+   * was taken.
+   */
+  const takeInboxDraft = (text: string) => {
+    const decision = considerFinal({
+      text,
+      stage: 'final',
+      echo: false,
+      source: 'speech',
+      now: Date.now(),
+    })
+    if (decision.type === 'chat') return false
+    if (decision.type === 'ignore') return false
+    if (decision.type === 'duplicate') {
+      listen(AWAIT_SPEECH_MS)
+      return true
+    }
+    if (decision.type === 'draft') {
+      publishInboxDraft({ type: 'draft', task: decision.task, target: decision.target })
+    } else {
+      publishInboxDraft({ type: 'refuse', reason: decision.reason })
+    }
+    silence()
+    const line =
+      decision.type === 'draft'
+        ? decision.spoken
+        : decision.reason
+    const note = createSpeaker()
+    speaker.current = note
+    note.say(line)
+    void note.end()
+    listen(FOLLOW_UP_MS)
+    return true
+  }
+
   const onWake = (trailing: string) => {
     const phase = store.getState().phase
     if (phase === 'offline' || phase === 'boot') return
@@ -246,7 +285,7 @@ export default function App() {
     // "Jarvis, what's happening in AI this week" in one breath. Waiting for a
     // greeting he didn't need is the most common way an assistant wastes time.
     if (trailing) {
-      void respond(trailing)
+      if (!takeInboxDraft(trailing)) void respond(trailing)
       return
     }
 
@@ -305,7 +344,7 @@ export default function App() {
       return
     }
 
-    void respond(said)
+    if (!takeInboxDraft(said)) void respond(said)
   }
 
   const onPartial = (text: string) => {
@@ -577,27 +616,26 @@ export default function App() {
     pump()
 
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // Inputs, selects, and contenteditable regions keep their keys. V in a
+      // text field is typing, not a voice change.
+      if (isTypingTarget(e.target)) return
 
-      // V auditions the next British voice installed on this machine. Which
-      // ones exist varies per Mac, so hearing them beats trusting a ranking.
-      // Bare V only — ⌘V and ⌃V are paste, and swallowing those was rude.
+      // V cycles every browser voice and plays a preview. Bare V only — ⌘V
+      // and ⌃V are paste. The preview stays on the free speechSynthesis voice
+      // and does not start the microphone or a Claude turn.
       if (
-        e.key === 'v' &&
+        (e.key === 'v' || e.key === 'V') &&
         !e.repeat &&
         !e.metaKey &&
         !e.ctrlKey &&
-        !e.altKey
+        !e.altKey &&
+        !e.isComposing
       ) {
         e.preventDefault()
         const name = cycleVoice()
-        store.getState().setVoice(name)
+        if (name) store.getState().setVoice(name)
         silence()
-        const demo = createSpeaker()
-        speaker.current = demo
-        demo.say(`Voice set to ${name.replace(/\(.*?\)/g, '').trim()}. At your service, sir.`)
-        void demo.end()
+        previewBrowserVoice()
         return
       }
 
