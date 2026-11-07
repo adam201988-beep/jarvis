@@ -6,7 +6,8 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
-import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
+import { createSpeaker, cycleVoice, currentVoiceName, previewBrowserVoice } from './lib/tts'
+import { isTypingTarget } from './lib/browserVoices'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
@@ -577,27 +578,26 @@ export default function App() {
     pump()
 
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // Inputs, selects, and contenteditable regions keep their keys. V in a
+      // text field is typing, not a voice change.
+      if (isTypingTarget(e.target)) return
 
-      // V auditions the next British voice installed on this machine. Which
-      // ones exist varies per Mac, so hearing them beats trusting a ranking.
-      // Bare V only — ⌘V and ⌃V are paste, and swallowing those was rude.
+      // V cycles every browser voice and plays a preview. Bare V only — ⌘V
+      // and ⌃V are paste. The preview stays on the free speechSynthesis voice
+      // and does not start the microphone or a Claude turn.
       if (
-        e.key === 'v' &&
+        (e.key === 'v' || e.key === 'V') &&
         !e.repeat &&
         !e.metaKey &&
         !e.ctrlKey &&
-        !e.altKey
+        !e.altKey &&
+        !e.isComposing
       ) {
         e.preventDefault()
         const name = cycleVoice()
-        store.getState().setVoice(name)
+        if (name) store.getState().setVoice(name)
         silence()
-        const demo = createSpeaker()
-        speaker.current = demo
-        demo.say(`Voice set to ${name.replace(/\(.*?\)/g, '').trim()}. At your service, sir.`)
-        void demo.end()
+        previewBrowserVoice()
         return
       }
 

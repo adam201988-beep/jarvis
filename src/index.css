@@ -330,6 +330,103 @@ body::after {
   letter-spacing: 0.2em;
 }
 
+/* The voice control sits above the faded hint and has to receive clicks.
+   .hud itself is pointer-events: none so the reactor stays usable. */
+.voice-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  z-index: 6;
+  pointer-events: auto;
+  text-align: center;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+.voice-toggle,
+.voice-preview,
+.voice-choice {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.voice-toggle,
+.voice-preview {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 10px;
+  padding: 4px 8px;
+}
+
+.voice-toggle {
+  opacity: 1;
+}
+
+.voice-short,
+.voice-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: #d7f6ff;
+}
+
+.voice-picker {
+  margin-top: 8px;
+  max-height: min(46vh, 340px);
+  overflow: auto;
+  text-align: left;
+  background: rgba(1, 8, 14, 0.94);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  padding: 10px 12px;
+}
+
+.voice-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.voice-choice {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  text-align: left;
+  padding: 6px 8px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 12px;
+}
+
+.voice-choice.is-selected {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.voice-lang {
+  opacity: 0.65;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
+.voice-preview {
+  margin-top: 4px;
+}
+
+.voice-preview:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 kbd {
   font-family: 'JetBrains Mono', monospace;
   border: 1px solid currentColor;

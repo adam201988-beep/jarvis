@@ -8,6 +8,16 @@ import {
 } from '../config'
 import * as kokoro from './kokoro'
 import { caps } from './capabilities'
+import {
+  VOICE_PREF_KEY,
+  cycleSelection,
+  readSaved,
+  previewScript,
+  resolveVoice,
+  sameVoice,
+  serializeSaved,
+  type ListedVoice,
+} from './browserVoices'
 
 /**
  * Speech output.
@@ -162,115 +172,136 @@ const MAX_UNSPOKEN = 220
 // Voice selection
 // ---------------------------------------------------------------------------
 
-const VOICE_PREF_KEY = 'jarvis.voice'
+function browserList(): ListedVoice[] {
+  if (typeof speechSynthesis === 'undefined') return []
+  return speechSynthesis.getVoices().map((voice) => ({
+    name: voice.name,
+    lang: voice.lang,
+    voiceURI: voice.voiceURI,
+  }))
+}
+
+function readPreference() {
+  try {
+    return readSaved(localStorage.getItem(VOICE_PREF_KEY))
+  } catch {
+    return null
+  }
+}
+
+function remember(voice: ListedVoice) {
+  try {
+    localStorage.setItem(VOICE_PREF_KEY, serializeSaved(voice))
+  } catch {
+    /* private mode: the choice still applies until reload */
+  }
+}
 
 /**
- * Rank installed voices by how close they are to the character: a British
- * male, low and level, not a novelty voice.
+ * The voice that will actually speak.
  *
- * The big win on macOS is the Enhanced/Premium variant of Daniel. The stock
- * "Daniel" is a compact voice from a decade ago and sounds it; the Enhanced
- * download is free (System Settings → Accessibility → Spoken Content → System
- * Voice → Manage Voices) and once installed it appears here automatically.
+ * Resolved on every call. A cache here used to freeze the first empty result,
+ * and a saved name that was missing from a not-yet-loaded list was deleted.
+ * Chrome delivers the list late, often in more than one voiceschanged event,
+ * so a preference has to survive until the matching voice appears.
  */
-function score(v: SpeechSynthesisVoice): number {
-  const n = v.name.toLowerCase()
-  let s = 0
-
-  // The macOS British male, and the closest thing to the character available
-  // without leaving the machine.
-  if (n.startsWith('daniel')) s += 100
-  else if (n.includes('google uk english male')) s += 85
-  else if (/\b(oliver|arthur|jamie|malcolm)\b/.test(n)) s += 80
-  // Newer macOS en-GB male voices — casual, but serviceable.
-  else if (/\b(reed|rocko|eddy)\b/.test(n)) s += 40
-
-  // Higher-quality variants of whatever matched above.
-  if (n.includes('premium')) s += 30
-  else if (n.includes('enhanced')) s += 20
-
-  if (/en[-_]gb/i.test(v.lang)) s += 25
-  else if (/^en/i.test(v.lang)) s += 5
-
-  // Voices that clearly aren't a butler.
-  if (/grandma|grandpa|bubbles|jester|bells|boing|whisper|zarvox|superstar|trinoids|wobble|bahh|organ|cellos|bad news|good news/.test(n)) {
-    s -= 200
-  }
-  // Female-presenting names across the English sets.
-  if (/\b(flo|sandy|shelley|kate|serena|fiona|moira|karen|tessa|samantha|zoe|allison|ava|susan)\b/.test(n)) {
-    s -= 60
-  }
-
-  return s
-}
-
-/** Only voices that scored on a name match, not merely on being English —
- *  otherwise the picker cycles through a dozen US novelty voices. */
-const USABLE = 40
-
-/** Best-first list of usable voices — also what the voice picker cycles. */
-export function candidateVoices(): SpeechSynthesisVoice[] {
-  return speechSynthesis
-    .getVoices()
-    .filter((v) => /^en/i.test(v.lang))
-    .map((v) => ({ v, s: score(v) }))
-    .filter((x) => x.s >= USABLE)
-    .sort((a, b) => b.s - a.s)
-    .map((x) => x.v)
-}
-
-let cachedVoice: SpeechSynthesisVoice | null | undefined
-
 function pickVoice(): SpeechSynthesisVoice | null {
-  if (cachedVoice !== undefined) return cachedVoice
-  const all = speechSynthesis.getVoices()
-  if (!all.length) return null // not loaded yet — try again next utterance
-
-  // Honour an explicit choice made with the voice picker. A saved name that no
-  // longer resolves is dropped rather than left to resurrect itself silently
-  // if that voice is ever reinstalled.
-  const saved = localStorage.getItem(VOICE_PREF_KEY)
-  if (saved) {
-    const hit = all.find((v) => v.name === saved)
-    if (hit) return (cachedVoice = hit)
-    localStorage.removeItem(VOICE_PREF_KEY)
-  }
-
-  cachedVoice = candidateVoices()[0] ?? all.find((v) => /^en/i.test(v.lang)) ?? null
-  return cachedVoice
+  if (typeof speechSynthesis === 'undefined') return null
+  const list = browserList()
+  const { chosen } = resolveVoice(list, readPreference())
+  if (!chosen) return null
+  return speechSynthesis.getVoices().find((voice) => sameVoice(
+    { name: voice.name, lang: voice.lang, voiceURI: voice.voiceURI },
+    chosen,
+  )) ?? null
 }
 
 /** What the HUD should show. Reports the engine actually in use rather than
  *  always naming a speechSynthesis voice that a cloud or neural engine has
- *  quietly replaced. */
+ *  quietly replaced. An empty string means the browser has not listed a voice
+ *  yet — it is not a voice named "default". */
 export function currentVoiceName(): string {
   if (USE_ELEVENLABS || caps().tts) return 'ElevenLabs'
   if (TTS_ENGINE === 'kokoro' && !kokoro.isUnavailable()) {
     return KOKORO_VOICE.replace(/^bm_/, '')
   }
-  return pickVoice()?.name ?? 'default'
+  return pickVoice()?.name ?? ''
 }
 
-/** Step to the next candidate — lets you audition voices on your own machine
- *  rather than trusting a ranking to be right about how they sound. */
+/** Step to the next browser voice and remember it. Empty when the list has
+ *  not arrived yet — callers must not invent a voice named "default". */
 export function cycleVoice(): string {
-  const list = candidateVoices()
-  if (!list.length) return 'default'
-  const now = pickVoice()
-  const i = list.findIndex((v) => v.name === now?.name)
-  const next = list[(i + 1) % list.length]
-  localStorage.setItem(VOICE_PREF_KEY, next.name)
-  cachedVoice = next
+  const next = cycleSelection(browserList(), readPreference())
+  if (!next) return ''
+  remember(next)
   return next.name
 }
 
-// Voices load asynchronously in Chrome; the first call usually returns nothing.
-if (typeof speechSynthesis !== 'undefined') {
-  speechSynthesis.addEventListener('voiceschanged', () => {
-    cachedVoice = undefined
-    pickVoice()
-  })
-  pickVoice()
+/**
+ * Speak one line with the selected browser voice.
+ *
+ * This stays on speechSynthesis. It does not call the bridge, ElevenLabs, or
+ * Kokoro, and a failure here does not latch the assistant off the system voice.
+ * The line is marked as speech the microphone already knows about, so a preview
+ * is not sent to Claude when the mic is already open.
+ */
+export function previewBrowserVoice() {
+  if (typeof speechSynthesis === 'undefined') return
+  const voice = pickVoice()
+  const script = previewScript(voice?.name ?? null)
+  const text = script.text
+  const utterance = new SpeechSynthesisUtterance(text)
+  if (voice) {
+    utterance.voice = voice
+    utterance.lang = voice.lang || 'en-GB'
+  } else {
+    utterance.lang = 'en-GB'
+  }
+  // Same pace as the conversation voice: steady, not pushed down into a trailer.
+  utterance.rate = script.rate
+  utterance.pitch = script.pitch
+  setSpeaking(text)
+  let started = false
+  let settled = false
+  let watchdog = 0
+  const finish = () => {
+    if (settled) return
+    settled = true
+    window.clearTimeout(watchdog)
+    if (speaking === text) setSpeaking('')
+  }
+  // If the engine never starts, drop the echo guard. Leaving it set would make
+  // the microphone treat the user's own words as the assistant talking.
+  watchdog = window.setTimeout(() => {
+    if (!started) finish()
+  }, 2500)
+  utterance.onstart = () => {
+    started = true
+  }
+  utterance.onend = finish
+  utterance.onerror = (event) => {
+    const code = String((event as SpeechSynthesisErrorEvent).error ?? '')
+    // Replacing a preview cancels the previous line. That is not a failure,
+    // and the replacement's own end event clears the echo guard.
+    if (code === 'interrupted' || code === 'canceled') return
+    finish()
+  }
+  const start = () => {
+    try {
+      speechSynthesis.resume()
+      speechSynthesis.speak(utterance)
+    } catch {
+      finish()
+    }
+  }
+  // Chrome drops an utterance spoken in the same turn as cancel(). Wait a
+  // tick, and only cancel when something is already queued.
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel()
+    window.setTimeout(start, 50)
+  } else {
+    start()
+  }
 }
 
 // ---------------------------------------------------------------------------

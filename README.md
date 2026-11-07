@@ -116,6 +116,8 @@ The local address column should be `127.0.0.1` and/or `[::1]`, not `0.0.0.0`. `n
 
 Leave Claude's own login where it is. Do not put an API key in `.env.local`. A voice turn bills the existing Claude account; the health check does not. Kokoro and ElevenLabs stay off unless you opt in later. Do not run `npm run bridge:writes` or `npm start -- --writes`.
 
+The **Voices** button at the bottom lists the browser's free voices. **Preview this voice**, or **V** while you are not typing, speaks one line in the selected voice and remembers it in this browser. Windows does not ship a British voice. The panel says so, and David or Mark is the closest male voice it can offer. The accent will be American.
+
 > It has to be a real browser window. Embedded preview panes block the
 > microphone, so JARVIS will look perfectly alive and simply never respond.
 
@@ -237,7 +239,7 @@ chose.
 | **"Hey Jarvis"** | Wake him |
 | **Space** | Talk without the wake word |
 | Just speak | Interrupt him mid-sentence (barge-in) |
-| **V** | Cycle the browser voice |
+| **V** | Cycle the free browser voices and play a short preview. The **Voices** button lists them. Typing in a text field keeps the key. |
 | **Escape** | Stand down |
 | **D** | Live diagnostics panel |
 | **T** | One-line audio self-test |
