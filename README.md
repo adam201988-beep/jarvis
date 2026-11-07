@@ -128,7 +128,16 @@ On this PC, in PowerShell, from the Jarvis folder:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-inbox-key.ps1
 ```
 
-The script asks for the POST to URL and then hides the sender key. Do not put the key in the command, in chat, or in `.env.local`. Copy both from the routine's Webhook section (POST to, and key). The URL has to be `https://api2.cursor.sh/automations/webhook/<id>` as shown there. Restart `npm start` after the script says it saved.
+The script asks for the POST to URL and then hides the sender key. Do not put the key in the command, in chat, or in `.env.local`. Copy both from the routine's Webhook section (POST to, and key). The URL has to be `https://api2.cursor.sh/automations/webhook/<id>` as shown there. Restart `npm start` after the script says it saved. A later update must not run this script again if the key is already saved.
+
+Spoken requests that prepare a draft, and do not send it:
+
+- "Ask Jarvis command for a CRM NFC Search status"
+- "Delegate to DriveConnect for a Launch Budget update"
+- "Get a CRM NFC Search status"
+- "Check the Launch Budget DC update"
+
+The draft opens for editing. Confirm Send is still required. The reply comes back in the Grok Bot chat, not as the next spoken line.
 
 > It has to be a real browser window. Embedded preview panes block the
 > microphone, so JARVIS will look perfectly alive and simply never respond.

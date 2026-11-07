@@ -17,6 +17,7 @@
     "check:loopback": "node scripts/check-loopback.mjs",
     "check:voices": "node node_modules/tsx/dist/cli.mjs scripts/check-voices.ts",
     "check:inbox": "node scripts/check-inbox.mjs",
+    "check:inbox-draft": "node node_modules/tsx/dist/cli.mjs scripts/check-inbox-draft.ts",
     "bridge": "node bridge/server.mjs",
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
     "setup": "node scripts/setup.mjs"

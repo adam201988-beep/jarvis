@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BRIDGE_HTTP_URL } from '../config'
+import { subscribeInboxDraft } from '../lib/inboxDraft'
 
 type Session = {
   configured: boolean
@@ -33,6 +34,10 @@ export function InboxRelay() {
   const [requestId, setRequestId] = useState(newRequestId)
   const [result, setResult] = useState<SendResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const taskRef = useRef(task)
+  const box = useRef<HTMLTextAreaElement>(null)
+  taskRef.current = task
 
   useEffect(() => {
     if (!open) return
@@ -50,6 +55,29 @@ export function InboxRelay() {
       gone = true
     }
   }, [open])
+
+  useEffect(() => {
+    return subscribeInboxDraft((event) => {
+      setOpen(true)
+      if (event.type === 'refuse') {
+        setResult({ ok: false, code: 'task', message: event.reason })
+        return
+      }
+      const typing =
+        document.activeElement === box.current &&
+        taskRef.current.trim() !== '' &&
+        taskRef.current.trim() !== event.task
+      if (typing) {
+        setNotice('A spoken draft is waiting. The text you are typing was left as it is.')
+        return
+      }
+      if (taskRef.current.trim() === event.task) return
+      setNotice('')
+      setTask(event.task)
+      setRequestId(newRequestId())
+      setResult(null)
+    })
+  }, [])
 
   const preview = {
     request_id: requestId,
@@ -116,7 +144,9 @@ export function InboxRelay() {
               Destination: <span>{session.destination}</span>
             </p>
           )}
+          {notice && <p className="inbox-note">{notice}</p>}
           <textarea
+            ref={box}
             className="inbox-task"
             value={task}
             maxLength={4000}
