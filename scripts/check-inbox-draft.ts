@@ -112,6 +112,9 @@ if (risky.type === 'refuse') {
 const line = draftSpokenLine('CRM NFC Search')
 assert(!/status is|completed|done|installed/i.test(line), 'the acknowledgement does not invent a result')
 
+const draftSource = readFileSync(new URL('../src/lib/inboxDraft.ts', import.meta.url), 'utf8')
+assert(!/inboxPolicy|net\.mjs|node:http/.test(draftSource), 'the browser draft helper does not import the Node webhook stack')
+
 const prompt = readFileSync(new URL('../bridge/server.mjs', import.meta.url), 'utf8')
 assert(prompt.includes('Do not open Chrome'), 'the model is told not to open Chrome for these bots')
 assert(prompt.includes('Never invent'), 'the model is told not to invent a bot status')

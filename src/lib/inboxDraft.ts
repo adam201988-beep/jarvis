@@ -13,7 +13,7 @@
  * - "What's the status of CRM NFC Search"
  */
 
-import { taskAllowed } from '../../bridge/inboxPolicy.mjs'
+import { taskAllowed } from '../../bridge/taskText.mjs'
 
 export type DraftInput = {
   text: string

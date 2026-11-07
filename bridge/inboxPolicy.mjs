@@ -12,52 +12,19 @@
 
 import { createHash } from 'node:crypto'
 import { blockedAddress } from './net.mjs'
+import { TASK_MAX, normalizeTask, taskAllowed } from './taskText.mjs'
+
+export { TASK_MAX, normalizeTask, taskAllowed }
 
 export const WEBHOOK_HOST = 'api2.cursor.sh'
 export const DUPLICATE_WINDOW_MS = 10 * 60 * 1000
-export const TASK_MAX = 4000
 export const REQUEST_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 const WEBHOOK_PATH = /^\/automations\/webhook\/[A-Za-z0-9_-]{8,200}$/
 
-const BLOCKED_TASK = [
-  [/\bsend\b/i, 'sending'],
-  [/\b(delete|erase)\b/i, 'deleting'],
-  [/\b(buy|purchase|pay|charge)\b/i, 'buying or paying'],
-  [/\bdeploy\b/i, 'deploying'],
-  [/\bproduction\b/i, 'production changes'],
-  [/\bprod\b/i, 'production changes'],
-  [/\b(password|credential|api key)\b/i, 'credentials or account secrets'],
-  [/\b(change|update|reset)\b[^.]{0,40}\baccount\b/i, 'account changes'],
-]
-
 export function hashTask(task) {
   return createHash('sha256').update(task, 'utf8').digest('hex')
-}
-
-export function normalizeTask(raw) {
-  return String(raw ?? '').trim()
-}
-
-/** Research, analysis, and drafts only. Effectful wording is refused locally. */
-export function taskAllowed(raw) {
-  const task = normalizeTask(raw)
-  if (!task) return { ok: false, reason: 'The task is empty.' }
-  if (task.length > TASK_MAX) {
-    return { ok: false, reason: `The task is longer than ${TASK_MAX} characters.` }
-  }
-  for (const [pattern, why] of BLOCKED_TASK) {
-    if (pattern.test(task)) {
-      return {
-        ok: false,
-        reason:
-          `This inbox only accepts research, analysis, and drafts. ` +
-          `The text looks like ${why}, so it was not sent.`,
-      }
-    }
-  }
-  return { ok: true, task }
 }
 
 export function requestIdAllowed(raw) {
